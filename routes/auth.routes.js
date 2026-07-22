@@ -1,90 +1,189 @@
 // server/routes/auth.routes.js
+// ------------------------------------------------------------------
+// All THREE login methods live here now:
+//   POST   /api/auth/register     (email + password)
+//   POST   /api/auth/login        (email + password)
+//   POST   /api/auth/google       (Google Identity Services idToken)
+//   GET    /api/auth/me           (requires Bearer token)
+//   GET    /api/auth/x/login      (X OAuth2 popup flow, unchanged logic)
+//   GET    /api/auth/x/callback
+//
+// Env vars needed:
+//   JWT_SECRET        - always required
+//   FRONTEND_URL       - always required
+//   X_CLIENT_ID, X_CLIENT_SECRET, X_CALLBACK_URL   - for X login
+//   GOOGLE_CLIENT_ID                                - for Google login
+//     (this is the BACKEND's copy of the same client ID used by
+//      VITE_GOOGLE_CLIENT_ID on the frontend — they must match)
+// ------------------------------------------------------------------
 import express from "express";
 import crypto from "crypto";
 import jwt from "jsonwebtoken";
 import axios from "axios";
 import User from "../models/user.model.js";
+import { requireAuth } from "../middleware/auth.middleware.js";
 
 const router = express.Router();
 
-const REQUIRED_ENV = [
-  "X_CLIENT_ID",
-  "X_CLIENT_SECRET",
-  "X_CALLBACK_URL",
-  "JWT_SECRET",
-  "FRONTEND_URL",
-];
-function getMissingEnv() {
-  return REQUIRED_ENV.filter((key) => !process.env[key]);
+function requireEnv(keys) {
+  const missing = keys.filter((k) => !process.env[k]);
+  if (missing.length) console.error(`[auth.routes] Missing env vars: ${missing.join(", ")}`);
+  return missing;
 }
-const missingAtLoad = getMissingEnv();
-if (missingAtLoad.length > 0) {
-  console.error(`[auth.routes] Missing env vars: ${missingAtLoad.join(", ")}`);
+requireEnv(["JWT_SECRET", "FRONTEND_URL"]);
+
+function signToken(userId) {
+  return jwt.sign({ userId: userId.toString() }, process.env.JWT_SECRET, { expiresIn: "7d" });
 }
 
-// ------------------------------------------------------------------
-// PKCE state handling — STATELESS.
-// ------------------------------------------------------------------
-// Previously the code_verifier was kept in an in-memory Map keyed by
-// `state`. That breaks the moment /x/login and /x/callback are
-// handled by two different server instances (serverless functions,
-// multiple dynos/pods, PM2 cluster, a redeploy in between, etc.) —
-// which is very likely on platforms like Vercel. The second request
-// simply wouldn't find the verifier and every login would randomly
-// fail with "invalid_state".
-//
-// Instead, we pack {verifier, expiry} into the `state` param itself,
-// HMAC-signed with JWT_SECRET so it can't be tampered with. No server
-// memory needed at all, so it works no matter how many instances are
-// running or how they're distributed.
-// ------------------------------------------------------------------
+/* ================================================================
+   EMAIL + PASSWORD
+   ================================================================ */
+
+router.post("/register", async (req, res) => {
+  try {
+    const { name, email, password } = req.body;
+    if (!email || !password) {
+      return res.status(400).json({ success: false, error: "Email and password are required." });
+    }
+    if (password.length < 6) {
+      return res.status(400).json({ success: false, error: "Password must be at least 6 characters." });
+    }
+
+    const existing = await User.findOne({ email: email.toLowerCase().trim() });
+    if (existing) {
+      return res.status(409).json({ success: false, error: "An account with this email already exists." });
+    }
+
+    const user = await User.create({
+      name: name?.trim() || email.split("@")[0],
+      email: email.toLowerCase().trim(),
+      password,
+    });
+
+    const token = signToken(user._id);
+    return res.status(201).json({ success: true, token, user: user.toSafeJSON() });
+  } catch (err) {
+    console.error("[auth.routes] register error:", err);
+    return res.status(500).json({ success: false, error: "Could not create account." });
+  }
+});
+
+router.post("/login", async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    if (!email || !password) {
+      return res.status(400).json({ success: false, error: "Email and password are required." });
+    }
+
+    const user = await User.findOne({ email: email.toLowerCase().trim() }).select("+password");
+    if (!user || !(await user.comparePassword(password))) {
+      return res.status(401).json({ success: false, error: "Invalid email or password." });
+    }
+
+    const token = signToken(user._id);
+    return res.status(200).json({ success: true, token, user: user.toSafeJSON() });
+  } catch (err) {
+    console.error("[auth.routes] login error:", err);
+    return res.status(500).json({ success: false, error: "Could not sign in." });
+  }
+});
+
+/* ================================================================
+   GOOGLE
+   ================================================================ */
+
+router.post("/google", async (req, res) => {
+  try {
+    const { idToken } = req.body;
+    if (!idToken) {
+      return res.status(400).json({ success: false, error: "Missing Google idToken." });
+    }
+    if (!process.env.GOOGLE_CLIENT_ID) {
+      console.error("[auth.routes] GOOGLE_CLIENT_ID not set on backend");
+      return res.status(500).json({ success: false, error: "Google sign-in is not configured on the server." });
+    }
+
+    // Verify the idToken with Google directly (no extra SDK dependency needed).
+    const verifyRes = await axios.get("https://oauth2.googleapis.com/tokeninfo", {
+      params: { id_token: idToken },
+    });
+    const payload = verifyRes.data;
+
+    if (payload.aud !== process.env.GOOGLE_CLIENT_ID) {
+      return res.status(401).json({ success: false, error: "Google token was not issued for this app." });
+    }
+
+    let user = await User.findOne({ googleId: payload.sub });
+    if (!user) {
+      // If an account already exists with this email (e.g. registered via
+      // email/password earlier), link Google to it instead of duplicating.
+      user = await User.findOne({ email: payload.email });
+      if (user) {
+        user.googleId = payload.sub;
+        if (!user.avatar) user.avatar = payload.picture;
+        await user.save();
+      } else {
+        user = await User.create({
+          googleId: payload.sub,
+          email: payload.email,
+          name: payload.name,
+          avatar: payload.picture,
+        });
+      }
+    }
+
+    const token = signToken(user._id);
+    return res.status(200).json({ success: true, token, user: user.toSafeJSON() });
+  } catch (err) {
+    console.error("[auth.routes] google error:", err?.response?.data || err.message);
+    return res.status(401).json({ success: false, error: "Google sign-in failed." });
+  }
+});
+
+/* ================================================================
+   CURRENT USER
+   ================================================================ */
+
+router.get("/me", requireAuth, async (req, res) => {
+  return res.status(200).json({ success: true, user: req.user.toSafeJSON() });
+});
+
+/* ================================================================
+   X / TWITTER OAUTH (unchanged PKCE-in-state logic, still stateless
+   so it works fine across multiple serverless instances)
+   ================================================================ */
 
 const STATE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
 function base64url(buffer) {
-  return buffer
-    .toString("base64")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=/g, "");
+  return buffer.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
 }
-
 function base64urlDecodeToString(str) {
   const padded = str.replace(/-/g, "+").replace(/_/g, "/");
   return Buffer.from(padded, "base64").toString("utf8");
 }
-
 function signState(payloadObj) {
   const payload = base64url(Buffer.from(JSON.stringify(payloadObj), "utf8"));
-  const sig = base64url(
-    crypto.createHmac("sha256", process.env.JWT_SECRET).update(payload).digest()
-  );
+  const sig = base64url(crypto.createHmac("sha256", process.env.JWT_SECRET).update(payload).digest());
   return `${payload}.${sig}`;
 }
-
 function verifyAndDecodeState(state) {
   if (typeof state !== "string" || !state.includes(".")) return null;
   const [payload, sig] = state.split(".");
-  const expectedSig = base64url(
-    crypto.createHmac("sha256", process.env.JWT_SECRET).update(payload).digest()
-  );
-  // Constant-time comparison to avoid timing attacks.
+  const expectedSig = base64url(crypto.createHmac("sha256", process.env.JWT_SECRET).update(payload).digest());
   const a = Buffer.from(sig);
   const b = Buffer.from(expectedSig);
   if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
-
   try {
     const decoded = JSON.parse(base64urlDecodeToString(payload));
     if (!decoded?.v || !decoded?.exp || Date.now() > decoded.exp) return null;
-    return decoded; // { v: codeVerifier, exp: timestamp }
+    return decoded;
   } catch {
     return null;
   }
 }
 
-/* Small HTML helper: talks back to the tab that opened this popup via
-   postMessage, then closes itself. Falls back to a normal redirect if
-   the popup was blocked and this ended up as a full-page navigation. */
 function popupResponseHtml({ success, token, message, frontendUrl }) {
   const payload = success
     ? { type: "x-oauth-success", token }
@@ -107,10 +206,6 @@ function popupResponseHtml({ success, token, message, frontendUrl }) {
             return;
           }
         } catch (e) {}
-        // No opener (popup blocked / opened directly) -> normal redirect.
-        // Note: this puts the token in the URL as a last-resort fallback
-        // (history/referrer exposure). The postMessage path above avoids
-        // this entirely and is what runs in the normal popup flow.
         window.location.href = ${JSON.stringify(fallbackUrl)};
       })();
     </script>
@@ -118,29 +213,20 @@ function popupResponseHtml({ success, token, message, frontendUrl }) {
 </html>`;
 }
 
-// Step A: send the user to X's authorize screen (opened in a popup by the frontend)
 router.get("/x/login", (req, res) => {
-  const missing = getMissingEnv();
+  const missing = requireEnv(["X_CLIENT_ID", "X_CLIENT_SECRET", "X_CALLBACK_URL"]);
   if (missing.length > 0) {
-    console.error(`[x/login] Cannot start OAuth, missing: ${missing.join(", ")}`);
-    return res
-      .status(500)
-      .send(
-        popupResponseHtml({
-          success: false,
-          message: "server_misconfigured",
-          frontendUrl: process.env.FRONTEND_URL || "http://localhost:5173",
-        })
-      );
+    return res.status(500).send(
+      popupResponseHtml({
+        success: false,
+        message: "server_misconfigured",
+        frontendUrl: process.env.FRONTEND_URL || "http://localhost:5173",
+      })
+    );
   }
 
   const codeVerifier = base64url(crypto.randomBytes(32));
-  const codeChallenge = base64url(
-    crypto.createHash("sha256").update(codeVerifier).digest()
-  );
-
-  // The verifier travels inside the signed `state` param instead of a
-  // server-side Map — see the block comment above.
+  const codeChallenge = base64url(crypto.createHash("sha256").update(codeVerifier).digest());
   const state = signState({ v: codeVerifier, exp: Date.now() + STATE_TTL_MS });
 
   const params = new URLSearchParams({
@@ -156,7 +242,6 @@ router.get("/x/login", (req, res) => {
   res.redirect(`https://twitter.com/i/oauth2/authorize?${params.toString()}`);
 });
 
-// Step B: X redirects back here (still inside the popup)
 router.get("/x/callback", async (req, res) => {
   const frontendUrl = process.env.FRONTEND_URL;
 
@@ -164,16 +249,12 @@ router.get("/x/callback", async (req, res) => {
     const { code, state, error: xError } = req.query;
 
     if (xError) {
-      return res.send(
-        popupResponseHtml({ success: false, message: "auth_denied", frontendUrl })
-      );
+      return res.send(popupResponseHtml({ success: false, message: "auth_denied", frontendUrl }));
     }
 
     const decodedState = verifyAndDecodeState(state);
     if (!decodedState) {
-      return res.send(
-        popupResponseHtml({ success: false, message: "invalid_state", frontendUrl })
-      );
+      return res.send(popupResponseHtml({ success: false, message: "invalid_state", frontendUrl }));
     }
     const codeVerifier = decodedState.v;
 
@@ -190,10 +271,7 @@ router.get("/x/callback", async (req, res) => {
         headers: {
           "Content-Type": "application/x-www-form-urlencoded",
           Authorization:
-            "Basic " +
-            Buffer.from(
-              `${process.env.X_CLIENT_ID}:${process.env.X_CLIENT_SECRET}`
-            ).toString("base64"),
+            "Basic " + Buffer.from(`${process.env.X_CLIENT_ID}:${process.env.X_CLIENT_SECRET}`).toString("base64"),
         },
       }
     );
@@ -214,22 +292,18 @@ router.get("/x/callback", async (req, res) => {
         $set: {
           username: xUser.username,
           displayName: xUser.name,
+          name: xUser.name,
           avatar: xUser.profile_image_url,
         },
       },
       { new: true, upsert: true }
     );
 
-    const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, {
-      expiresIn: "7d",
-    });
-
+    const token = signToken(user._id);
     return res.send(popupResponseHtml({ success: true, token, frontendUrl }));
   } catch (err) {
     console.error("X OAuth callback error:", err?.response?.data || err.message);
-    return res.send(
-      popupResponseHtml({ success: false, message: "auth_failed", frontendUrl })
-    );
+    return res.send(popupResponseHtml({ success: false, message: "auth_failed", frontendUrl }));
   }
 });
 
