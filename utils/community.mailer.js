@@ -18,7 +18,15 @@
  *                              the Accept/Reject links
  *   SERVER_URL                 — your backend's public base URL, e.g.
  *                              http://localhost:5000 in dev, or your
- *                              deployed API URL in production
+ *                              deployed API URL in production. THIS
+ *                              MUST BE SET IN THE DEPLOYED (Railway/
+ *                              Vercel) ENVIRONMENT — without it, the
+ *                              Accept/Reject links in every join-
+ *                              request email will point at
+ *                              localhost:5000 and fail with
+ *                              ERR_CONNECTION_REFUSED for anyone who
+ *                              isn't running the server locally on
+ *                              that exact machine.
  *   COMMUNITY_WEBSITE_URL      — your public site URL (used by the
  *                              "Done" button on the result page as a
  *                              fallback destination if the tab can't
@@ -31,7 +39,21 @@ import crypto from "crypto";
 
 const ADMIN_EMAIL = process.env.COMMUNITY_ADMIN_EMAIL || "beenishlatif1026@gmail.com";
 const ACTION_SECRET = process.env.COMMUNITY_ACTION_SECRET || "replace-this-with-a-long-random-string";
-const SERVER_URL = process.env.SERVER_URL || `http://localhost:${process.env.PORT || 5000}`;
+
+// Production-safe fallback: if SERVER_URL isn't set in the deployed
+// environment, fall back to the actual deployed backend origin
+// instead of localhost — localhost:5000 only ever exists on whichever
+// single machine happens to be running the server at that moment, so
+// it can never work as a link inside an email. Locally, running with
+// `node server.js` / `npm run dev` still works fine because
+// process.env.VERCEL/RAILWAY_ENVIRONMENT won't be set and we fall
+// through to the localhost dev URL in that case.
+const DEFAULT_PROD_SERVER_URL = "https://injective-pakistan-backend-2gbb.vercel.app";
+const isDeployed = Boolean(process.env.VERCEL || process.env.RAILWAY_ENVIRONMENT || process.env.RENDER);
+const SERVER_URL =
+  process.env.SERVER_URL ||
+  (isDeployed ? DEFAULT_PROD_SERVER_URL : `http://localhost:${process.env.PORT || 5000}`);
+
 const WEBSITE_URL = process.env.COMMUNITY_WEBSITE_URL || "/";
 
 const transporter = nodemailer.createTransport({
