@@ -5,9 +5,27 @@
 //   2. Google (Google Identity Services idToken)
 //   3. X / Twitter (OAuth2 + PKCE)
 //
-// All identity fields (email, googleId, xId) are optional + sparse
-// unique, so a user created via one method doesn't need the fields
-// used by the others.
+// All identity fields (email, googleId, xId, username) are optional +
+// sparse unique, so a user created via one method doesn't need the
+// fields used by the others.
+//
+// FIX (Jul 22): `username` previously had no index defined in the
+// schema at all, but an old unique (non-sparse) index on `username`
+// was still sitting in MongoDB from an earlier version of this
+// schema. That made every second Google/email signup fail with
+// "E11000 duplicate key error ... username_1 dup key: { username:
+// null }", because non-sparse unique indexes treat `null`/missing as
+// a real value that can only appear once. Declaring the index here
+// as sparse keeps it correct going forward — but the OLD index in the
+// database still needs to be dropped manually once, since Mongoose
+// does not alter existing indexes on its own. Run this one-off script
+// (or drop it via your DB provider's UI) before relying on this file:
+//
+//   import mongoose from "mongoose";
+//   await mongoose.connect(process.env.MONGO_URI);
+//   await mongoose.connection.collection("users").dropIndex("username_1");
+//   process.exit(0);
+//
 // ------------------------------------------------------------------
 import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
@@ -33,7 +51,7 @@ const userSchema = new mongoose.Schema(
 
     // X / Twitter auth
     xId: { type: String, unique: true, sparse: true },
-    username: { type: String }, // X handle
+    username: { type: String, unique: true, sparse: true }, // X handle
     displayName: { type: String }, // X display name
 
     // App-specific stats

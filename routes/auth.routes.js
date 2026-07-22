@@ -15,6 +15,13 @@
 //   GOOGLE_CLIENT_ID                                - for Google login
 //     (this is the BACKEND's copy of the same client ID used by
 //      VITE_GOOGLE_CLIENT_ID on the frontend — they must match)
+//
+// TEMP DEBUG (remove once register/google 500 errors are fixed):
+// register/login/google catch blocks now include `err.message` in the
+// JSON response so the real MongoDB/validation error is visible from
+// the client (curl/Postman/browser) without needing to open Vercel
+// Runtime Logs. Revert this before shipping to real users, since it
+// can leak internal details.
 // ------------------------------------------------------------------
 import express from "express";
 import crypto from "crypto";
@@ -65,7 +72,9 @@ router.post("/register", async (req, res) => {
     return res.status(201).json({ success: true, token, user: user.toSafeJSON() });
   } catch (err) {
     console.error("[auth.routes] register error:", err);
-    return res.status(500).json({ success: false, error: "Could not create account." });
+    // TEMP DEBUG: exposing err.message so the real cause is visible
+    // without digging through Vercel logs. Remove `debug` field later.
+    return res.status(500).json({ success: false, error: "Could not create account.", debug: err.message });
   }
 });
 
@@ -85,7 +94,7 @@ router.post("/login", async (req, res) => {
     return res.status(200).json({ success: true, token, user: user.toSafeJSON() });
   } catch (err) {
     console.error("[auth.routes] login error:", err);
-    return res.status(500).json({ success: false, error: "Could not sign in." });
+    return res.status(500).json({ success: false, error: "Could not sign in.", debug: err.message });
   }
 });
 
@@ -137,7 +146,7 @@ router.post("/google", async (req, res) => {
     return res.status(200).json({ success: true, token, user: user.toSafeJSON() });
   } catch (err) {
     console.error("[auth.routes] google error:", err?.response?.data || err.message);
-    return res.status(401).json({ success: false, error: "Google sign-in failed." });
+    return res.status(401).json({ success: false, error: "Google sign-in failed.", debug: err.message });
   }
 });
 
