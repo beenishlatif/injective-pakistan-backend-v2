@@ -4,6 +4,7 @@ import cors from "cors";
 import http from "http";
 import connectDB from "./config/db.js";
 import dns from "dns";
+import User from "./models/user.model.js";
 import statsRoutes from "./routes/stats.routes.js";
 import ecosystemRoutes from "./routes/ecosystem.routes.js";
 import aiRoutes from "./routes/ai.routes.js";
@@ -63,7 +64,29 @@ app.use(
 );
 app.use(express.json());
 
-connectDB();
+/**
+ * FIX: connect first, THEN reconcile the User collection's indexes
+ * with what's currently defined in user.model.js.
+ *
+ * THE BUG THIS FIXES: MongoDB Atlas had leftover unique indexes
+ * (username_1, email_1, xId_1) created as non-sparse from an earlier
+ * version of the schema — even though the schema itself declares them
+ * `sparse: true`. A non-sparse unique index treats a missing field as
+ * `null`, so only the FIRST user missing that field (e.g. the first
+ * Google/email signup, which has no xId) can ever be created — every
+ * later signup fails with "E11000 duplicate key error ... dup key:
+ * { <field>: null }". This happened first with username, then with
+ * xId/email after username was manually dropped.
+ *
+ * `syncIndexes()` compares the live indexes against the schema and
+ * automatically drops/rebuilds whichever ones don't match — so this
+ * class of bug can't come back, and no manual Atlas/mongosh step is
+ * needed for any field, present or future.
+ */
+connectDB()
+  .then(() => User.syncIndexes())
+  .then(() => console.log("✅ User indexes synced with schema"))
+  .catch((err) => console.error("❌ Failed to sync indexes:", err.message));
 
 app.get("/", (req, res) => {
   res.json({ status: "Injective Pakistan Hub API is running" });
