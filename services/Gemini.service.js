@@ -28,8 +28,12 @@ if (!process.env.GEMINI_API_KEY) {
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-// Updated to current Gemini Flash model
-const MODEL = "gemini-2.5-flash";
+// "gemini-2.5-flash" was retired by Google ahead of its announced shutdown
+// date and now returns a 404 ("This model ... is no longer available") on
+// every request — that was the cause of the chat/stream failures. Using
+// the "-latest" alias instead of a pinned snapshot name so this doesn't
+// silently break again the next time Google retires a specific version.
+const MODEL = "gemini-flash-latest";
 
 const MAX_OUTPUT_TOKENS = 1024;
 
