@@ -21,7 +21,7 @@
  * ------------------------------------------------------------------
  */
 
-const StatsSnapshot = require("../models/StatsSnapshot.model");
+import StatsSnapshot from "../models/StatsSnapshot.model.js";
 
 const COINGECKO_URL =
   "https://api.coingecko.com/api/v3/simple/price?ids=injective-protocol&vs_currencies=usd&include_24hr_change=true&include_market_cap=true";
@@ -153,7 +153,7 @@ async function getFreshOrCachedStats() {
 
 // GET /api/home/stats  and  GET /api/dashboard/stats
 // Returns the current/latest stats snapshot.
-async function getStats(req, res) {
+export async function getStats(req, res) {
   try {
     const stats = await getFreshOrCachedStats();
     return res.json({ success: true, stats });
@@ -177,7 +177,7 @@ async function getStats(req, res) {
 
 // GET /api/dashboard/history?range=1h|24h|7d|30d&metric=injPriceUsd
 // Returns an array of { capturedAt, value } points for charting.
-async function getHistory(req, res) {
+export async function getHistory(req, res) {
   try {
     const rangeParam = String(req.query.range || "24h").toLowerCase();
     const metric = String(req.query.metric || "injPriceUsd");
@@ -220,8 +220,3 @@ async function getHistory(req, res) {
     return res.status(500).json({ success: false, message: "Failed to load stats history" });
   }
 }
-
-module.exports = {
-  getStats,
-  getHistory,
-};

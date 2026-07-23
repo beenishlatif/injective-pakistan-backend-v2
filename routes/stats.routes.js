@@ -3,7 +3,7 @@
  * ------------------------------------------------------------------
  * Mount this router TWICE in your main server file (app.js / index.js):
  *
- *   const statsRoutes = require("./routes/stats.routes");
+ *   import statsRoutes from "./routes/stats.routes.js";
  *   app.use("/api/home", statsRoutes);       // -> GET /api/home/stats
  *   app.use("/api/dashboard", statsRoutes);  // -> GET /api/dashboard/stats
  *                                             // -> GET /api/dashboard/history
@@ -15,9 +15,10 @@
  * ------------------------------------------------------------------
  */
 
-const express = require("express");
+import express from "express";
+import * as statsController from "../controllers/stats.controller.js";
+
 const router = express.Router();
-const statsController = require("../controllers/stats.controller");
 
 // GET /stats -> current live/cached stats snapshot
 router.get("/stats", statsController.getStats);
@@ -27,4 +28,4 @@ router.get("/stats", statsController.getStats);
 // also reachable under /api/home)
 router.get("/history", statsController.getHistory);
 
-module.exports = router;
+export default router;

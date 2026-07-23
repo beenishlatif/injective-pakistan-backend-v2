@@ -1,4 +1,4 @@
-/**
+/** 
  * StatsSnapshot.model.js
  * ------------------------------------------------------------------
  * Mongoose model. Every time we pull live numbers (price, staked,
@@ -10,7 +10,7 @@
  * ------------------------------------------------------------------
  */
 
-const mongoose = require("mongoose");
+import mongoose from "mongoose";
 
 const StatsSnapshotSchema = new mongoose.Schema(
   {
@@ -50,6 +50,5 @@ const StatsSnapshotSchema = new mongoose.Schema(
 // Fast lookups for "give me the latest snapshot" and range queries.
 StatsSnapshotSchema.index({ capturedAt: -1 });
 
-module.exports =
-  mongoose.models.StatsSnapshot ||
+export default mongoose.models.StatsSnapshot ||
   mongoose.model("StatsSnapshot", StatsSnapshotSchema);
