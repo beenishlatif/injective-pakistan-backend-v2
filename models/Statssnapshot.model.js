@@ -1,54 +1,47 @@
 /**
- * marketData.model.js
+ * StatsSnapshot.js
  * ------------------------------------------------------------------
- * Caches live Injective (INJ) market data fetched from CoinGecko so the
- * dashboard doesn't hammer their public API on every page load, and so
- * the site keeps working (serving the last known snapshot) if CoinGecko
- * is briefly unreachable.
+ * Caches the latest live-network stats shown on the home page
+ * (INJ price, total staked, total burned, Helix 24h volume).
  *
- * This is a SINGLETON collection — only one document should ever exist,
- * identified by the fixed `key: "INJ_USD"`. The controller always
- * upserts against that key instead of creating new rows per fetch.
+ * We cache rather than hitting CoinGecko / Injective endpoints on
+ * every page load, since those upstream APIs are rate-limited on
+ * free tiers. homeController refreshes this on a TTL (see
+ * STATS_CACHE_TTL_MS in homeController.js).
  * ------------------------------------------------------------------
  */
 
 import mongoose from "mongoose";
 
-const priceHistorySchema = new mongoose.Schema(
+const statsSnapshotSchema = new mongoose.Schema(
   {
-    timestamp: { type: Date, required: true },
-    priceUsd: { type: Number, required: true },
+    injPriceUsd: { type: Number, default: null },
+    injPriceChange24h: { type: Number, default: null }, // percentage
+    totalStakedInj: { type: Number, default: null },
+    totalStakedUsd: { type: Number, default: null },
+    totalBurnedInj: { type: Number, default: null },
+    helixVolume24hUsd: { type: Number, default: null },
+    source: {
+      type: String,
+      enum: ["live", "fallback"],
+      default: "live",
+    },
+    fetchedAt: {
+      type: Date,
+      default: Date.now,
+    },
   },
-  { _id: false }
+  {
+    timestamps: true,
+  }
 );
 
-const marketDataSchema = new mongoose.Schema(
-  {
-    key: { type: String, required: true, unique: true, default: "INJ_USD" },
-    coinId: { type: String, required: true, default: "injective-protocol" },
+// Only the most recent snapshot is ever needed.
+statsSnapshotSchema.index({ fetchedAt: -1 });
 
-    priceUsd: { type: Number, default: null },
-    change24hPct: { type: Number, default: null },
-    high24hUsd: { type: Number, default: null },
-    low24hUsd: { type: Number, default: null },
-    marketCapUsd: { type: Number, default: null },
-    volume24hUsd: { type: Number, default: null },
-    circulatingSupply: { type: Number, default: null },
-
-    // Rolling window of price points used to render the 24h chart from
-    // cache instead of re-hitting CoinGecko. Capped in the controller
-    // (MAX_HISTORY_POINTS) so this array never grows unbounded.
-    history: { type: [priceHistorySchema], default: [] },
-
-    fetchedAt: { type: Date, default: Date.now },
-    lastFetchError: { type: String, default: null },
-  },
-  { timestamps: true }
+const StatsSnapshot = mongoose.model(
+  "StatsSnapshot",
+  statsSnapshotSchema
 );
 
-// Guard against "OverwriteModelError: Cannot overwrite `MarketData` model
-// once compiled" — on Vercel serverless, a module can occasionally be
-// evaluated more than once within the same warm isolate, and mongoose
-// throws (crashing the whole function, before Express/cors even runs)
-// if the model is registered twice.
-export default mongoose.models.MarketData || mongoose.model("MarketData", marketDataSchema);
+export default StatsSnapshot;
