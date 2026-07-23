@@ -46,4 +46,9 @@ const marketDataSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-export default mongoose.model("MarketData", marketDataSchema);
+// Guard against "OverwriteModelError: Cannot overwrite `MarketData` model
+// once compiled" — on Vercel serverless, a module can occasionally be
+// evaluated more than once within the same warm isolate, and mongoose
+// throws (crashing the whole function, before Express/cors even runs)
+// if the model is registered twice.
+export default mongoose.models.MarketData || mongoose.model("MarketData", marketDataSchema);
