@@ -101,7 +101,7 @@ app.use("/api/game", gameRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/home", homeRoutes);
 app.use("/api/community", communityRoutes);
-
+app.use("/api/dashboard", statsRoutes);
 
 // ---- 404 handler ----
 app.use((req, res) => {
