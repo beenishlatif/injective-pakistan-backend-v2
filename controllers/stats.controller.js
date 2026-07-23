@@ -21,7 +21,7 @@
  * ------------------------------------------------------------------
  */
 
-import StatsSnapshot from "../models/StatsSnapshot.model.js";
+import StatsSnapshot from "../models/Statssnapshot.model.js";
 
 const COINGECKO_URL =
   "https://api.coingecko.com/api/v3/simple/price?ids=injective-protocol&vs_currencies=usd&include_24hr_change=true&include_market_cap=true";
