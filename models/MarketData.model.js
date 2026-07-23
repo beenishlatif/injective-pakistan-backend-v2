@@ -1,5 +1,5 @@
 /**
- * MarketData.model.js
+ * marketData.model.js
  * ------------------------------------------------------------------
  * Caches live Injective (INJ) market data fetched from CoinGecko so the
  * dashboard doesn't hammer their public API on every page load, and so
