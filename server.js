@@ -13,7 +13,8 @@ import gameRoutes from "./routes/game.routes.js";
 import authRoutes from "./routes/auth.routes.js";
 import homeRoutes from "./routes/home.routes.js";
 import communityRoutes from "./routes/community.routes.js";
-import dashboardRoutes from "./routes/dashboard.routes.js";
+import dashboardRoutes from "./routes/dashboard.routes.js"
+
 
 const app = express();
 const server = http.createServer(app);
@@ -101,7 +102,7 @@ app.use("/api/game", gameRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/home", homeRoutes);
 app.use("/api/community", communityRoutes);
-app.use("/api/dashboard", dashboardRoutes);
+app.use("api/dashboard",dashboardRoutes)
 
 // ---- 404 handler ----
 app.use((req, res) => {
