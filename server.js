@@ -13,7 +13,7 @@ import gameRoutes from "./routes/game.routes.js";
 import authRoutes from "./routes/auth.routes.js";
 import homeRoutes from "./routes/home.routes.js";
 import communityRoutes from "./routes/community.routes.js";
-
+import { startSnapshotScheduler } from "./services/snapshot.scheduler.js";
 
 const app = express();
 const server = http.createServer(app);
@@ -66,8 +66,9 @@ app.use(
 app.use(express.json());
 
 /**
- * FIX: connect first, THEN reconcile the User collection's indexes
- * with what's currently defined in user.model.js.
+ * Connect to DB, then reconcile the User collection's indexes with
+ * what's currently defined in user.model.js, then start the snapshot
+ * scheduler.
  *
  * THE BUG THIS FIXES: MongoDB Atlas had leftover unique indexes
  * (username_1, email_1, xId_1) created as non-sparse from an earlier
@@ -83,11 +84,17 @@ app.use(express.json());
  * automatically drops/rebuilds whichever ones don't match — so this
  * class of bug can't come back, and no manual Atlas/mongosh step is
  * needed for any field, present or future.
+ *
+ * NOTE: connectDB() + syncIndexes() must run only ONCE on startup.
+ * (Previously this was duplicated into two separate blocks, which
+ * caused connectDB()/syncIndexes() to run twice in parallel — that
+ * duplicate block has been removed.)
  */
 connectDB()
   .then(() => User.syncIndexes())
-  .then(() => console.log("✅ User indexes synced with schema"))
-  .catch((err) => console.error("❌ Failed to sync indexes:", err.message));
+  .then(() => startSnapshotScheduler())
+  .then(() => console.log("✅ User indexes synced with schema, scheduler started"))
+  .catch((err) => console.error("❌ Failed to initialize server:", err.message));
 
 app.get("/", (req, res) => {
   res.json({ status: "Injective Pakistan Hub API is running" });
