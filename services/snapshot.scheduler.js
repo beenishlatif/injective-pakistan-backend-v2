@@ -12,7 +12,7 @@
  * ------------------------------------------------------------------
  */
 
-import StatsSnapshot from "../models/Statssnapshot.js";
+import StatsSnapshot from "../models/Statssnapshot.model.js";
 import { getInjMarketData } from "./coingecko.service.js";
 import { getStakingInfo, computeNetSupplyChange } from "./injective.service.js";
 
