@@ -19,7 +19,7 @@
  * ------------------------------------------------------------------
  */
 
-import StatsSnapshot from "../models/StatsSnapshot.js";
+import StatsSnapshot from "../models/Statssnapshot.js";
 import { getInjMarketData, getMarketChart } from "../services/coingecko.service.js";
 import {
   getStakingInfo,
